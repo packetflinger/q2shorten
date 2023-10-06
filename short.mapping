@@ -1,0 +1,22 @@
+# proto-file: github.com/packetflinger/q2shorten/proto/short.proto
+# proto-message: Mappings
+
+# Form to propose new mappings. Since the content needs to be heavily moderated, it's a manual process.
+mapping {
+    name: "add"
+    name: "new"
+    target: "https://docs.google.com/forms/d/e/1FAIpQLSfnkzvzZtpHKsLDXPukdLC_DWpBWDvtBMSXZg7gXjLJGs4vfQ/viewform"
+    contact: "claire"
+}
+
+# stuff related to this project
+mapping {
+    name: "src"
+    name: "source"
+    name: "source-code"
+    name: "code"
+    name: "help"
+    target: "https://github.com/packetflinger/q2shorten"
+    contact: "claire"
+}
+

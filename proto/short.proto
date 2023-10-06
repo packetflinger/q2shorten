@@ -1,0 +1,26 @@
+syntax="proto3";
+
+option go_package = "github.com/packetflinger/q2short/proto";
+
+package proto;
+
+// http server config
+message Config {
+	string address = 1;       // the ip address to listen on
+	uint32 port = 2;          // this is proxy port
+	string map_file = 3;      // path to mapping file
+}
+
+message Mapping {
+	repeated string name = 1; // what is asked for: /short-n-friendly
+	string target = 2;        // the URL to rediriect to
+	string contact = 3;       // the person who "owns" this mapping
+	int64 creation_time = 4;  // when the mapping was created (unix timestamp)
+	int64 expire_time = 5;    // when it's no longer valid (unix timestamp)
+	int64 premier_time = 6;   // don't work until this time (unix timestamp)
+	uint32 http_code = 7;     // which 3xx code to send
+}
+
+message Mappings {
+	repeated Mapping mapping = 1;
+}
