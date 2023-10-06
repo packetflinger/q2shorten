@@ -101,15 +101,21 @@ func allowed(mapping *pb.Mapping) bool {
 func redirectHandler(w http.ResponseWriter, r *http.Request) {
 	mapping, found := serviceMap[r.URL.Path[1:]]
 
+	// try to use real IP via proxy, if not fall back to remoteaddr
+	ip := r.Header.Get("X-Real-IP")
+	if len(ip) == 0 {
+		ip = r.RemoteAddr
+	}
+
 	if found && allowed(mapping) {
 		code := http.StatusSeeOther // 303
 		if mapping.GetHttpCode() > 0 {
 			code = int(mapping.GetHttpCode())
 		}
-		log.Println(r.RemoteAddr, r.URL.Path, "->", mapping.GetTarget())
+		log.Println(ip, r.URL.Path, "->", mapping.GetTarget())
 		http.Redirect(w, r, mapping.GetTarget(), code)
 	} else {
-		log.Println(r.RemoteAddr, r.URL.Path, "-> ???")
+		log.Println(ip, r.URL.Path, "-> ???")
 		fmt.Fprintln(w, "unknown service")
 	}
 }
