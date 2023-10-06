@@ -133,6 +133,6 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 // of giving them some useless "unknown service" message, give
 // them something slightly more useful.
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	msg := "This is a simple URL shortener. To propose a new redirect go to %s/new"
-	fmt.Fprintf(w, msg, r.Header.Get("Host"))
+	msg := "This is a simple URL shortener. To propose a new redirect go to q2.wtf/new"
+	fmt.Fprintln(w, msg)
 }
