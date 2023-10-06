@@ -99,6 +99,15 @@ func allowed(mapping *pb.Mapping) bool {
 }
 
 func redirectHandler(w http.ResponseWriter, r *http.Request) {
+	// special cases
+	if r.URL.Path == "/favicon.ico" {
+		return
+	}
+	if r.URL.Path == "/" {
+		indexHandler(w, r)
+		return
+	}
+
 	mapping, found := serviceMap[r.URL.Path[1:]]
 
 	// try to use real IP via proxy, if not fall back to remoteaddr
@@ -118,4 +127,12 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println(ip, r.URL.Path, "-> ???")
 		fmt.Fprintln(w, "unknown service")
 	}
+}
+
+// someone requested the domain with no service name. Instead
+// of giving them some useless "unknown service" message, give
+// them something slightly more useful.
+func indexHandler(w http.ResponseWriter, r *http.Request) {
+	msg := "This is a simple URL shortener. To propose a new redirect go to %s/new"
+	fmt.Fprintf(w, msg, r.Header.Get("Host"))
 }
