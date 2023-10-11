@@ -26,12 +26,27 @@ var (
 	configfile = flag.String("config", "short.config", "config file for http server")
 	logfile    = flag.String("logfile", "short.log", "The file we should log to")
 	foreground = flag.Bool("foreground", false, "Log to STDOUT/STDERR instead of file")
+	validate   = flag.Bool("validate", false, "Validates the mappings")
+
 	configpb   pb.Config
 	serviceMap map[string]*pb.Mapping
 )
 
 func main() {
 	flag.Parse()
+	if *validate {
+		config, err := loadConfig(*configfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		_, err = loadMapping(config.GetMapFile())
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("ok")
+		return
+	}
 
 	logfile, err := os.OpenFile(*logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -42,33 +57,24 @@ func main() {
 		log.SetOutput(logfile)
 	}
 
-	contents, err := os.ReadFile(*configfile)
+	config, err := loadConfig(*configfile)
 	if err != nil {
-		log.Fatalln(err)
-	}
-	err = prototext.Unmarshal(contents, &configpb)
-	if err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
 
-	contents, err = os.ReadFile(configpb.GetMapFile())
+	mappings, err := loadMapping(config.GetMapFile())
 	if err != nil {
-		log.Fatalln(err)
-	}
-	var mappingpb pb.Mappings
-	err = prototext.Unmarshal(contents, &mappingpb)
-	if err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
 
 	serviceMap = make(map[string]*pb.Mapping)
-	for _, m := range mappingpb.GetMapping() {
+	for _, m := range mappings.GetMapping() {
 		for _, l := range m.GetName() {
 			serviceMap[l] = m
 		}
 	}
 
-	address := fmt.Sprintf("%s:%d", configpb.GetAddress(), configpb.GetPort())
+	address := fmt.Sprintf("%s:%d", config.GetAddress(), config.GetPort())
 	httpsrv := &http.Server{
 		Addr:         address,
 		WriteTimeout: 10 * time.Second,
@@ -78,9 +84,37 @@ func main() {
 	// all requests will be handled by this func
 	http.HandleFunc("/", redirectHandler)
 
-	log.Println("loaded", len(serviceMap), "service mappings from", configpb.GetMapFile())
+	log.Println("loaded", len(serviceMap), "service mappings from", config.GetMapFile())
 	log.Printf("listening on http://%s\n", address)
 	log.Fatal(httpsrv.ListenAndServe())
+}
+
+// Read the config file and return a binary proto representing the contents
+func loadConfig(cfg string) (*pb.Config, error) {
+	var configpb pb.Config
+	contents, err := os.ReadFile(*configfile)
+	if err != nil {
+		return nil, err
+	}
+	err = prototext.Unmarshal(contents, &configpb)
+	if err != nil {
+		return nil, err
+	}
+	return &configpb, nil
+}
+
+// Read the mapping file and return a binary proto of it's contents
+func loadMapping(mapfile string) (*pb.Mappings, error) {
+	contents, err := os.ReadFile(mapfile)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	var mappingpb pb.Mappings
+	err = prototext.Unmarshal(contents, &mappingpb)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	return &mappingpb, nil
 }
 
 // whether this mapping should be allowed based on times
