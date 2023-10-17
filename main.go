@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	pb "github.com/packetflinger/q2shorten/proto"
@@ -133,6 +134,12 @@ func allowed(mapping *pb.Mapping) bool {
 }
 
 func redirectHandler(w http.ResponseWriter, r *http.Request) {
+	// try to use real IP via proxy, if not fall back to remoteaddr
+	ip := r.Header.Get("X-Real-IP")
+	if len(ip) == 0 {
+		ip = r.RemoteAddr
+	}
+
 	// special cases
 	if r.URL.Path == "/favicon.ico" {
 		return
@@ -141,14 +148,13 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 		indexHandler(w, r)
 		return
 	}
+	if r.URL.Path == "/list" || r.URL.Path == "/index" {
+		listHandler(w, r)
+		log.Println(ip, r.URL.Path)
+		return
+	}
 
 	mapping, found := serviceMap[r.URL.Path[1:]]
-
-	// try to use real IP via proxy, if not fall back to remoteaddr
-	ip := r.Header.Get("X-Real-IP")
-	if len(ip) == 0 {
-		ip = r.RemoteAddr
-	}
 
 	if found && allowed(mapping) {
 		code := http.StatusSeeOther // 303
@@ -169,4 +175,29 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	msg := "This is a simple URL shortener. To propose a new redirect go to q2.wtf/new"
 	fmt.Fprintln(w, msg)
+}
+
+// special case: listout all mappings
+func listHandler(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().Unix()
+
+	// sort the keys
+	keys := []string{}
+	for k := range serviceMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	fmt.Fprintln(w, "All mappings:")
+	for _, k := range keys {
+		v := serviceMap[k]
+		if v.GetExpireTime() > 0 && now > v.GetExpireTime() {
+			continue
+		}
+		if now < v.GetPremierTime() {
+			continue
+		}
+
+		fmt.Fprintf(w, "%-20s %s\n", k, v.GetTarget())
+	}
 }
