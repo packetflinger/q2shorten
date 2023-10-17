@@ -29,7 +29,6 @@ var (
 	foreground = flag.Bool("foreground", false, "Log to STDOUT/STDERR instead of file")
 	validate   = flag.Bool("validate", false, "Validates the mappings")
 
-	configpb   pb.Config
 	serviceMap map[string]*pb.Mapping
 )
 
