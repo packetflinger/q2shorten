@@ -29,6 +29,7 @@ var (
 	foreground = flag.Bool("foreground", false, "Log to STDOUT/STDERR instead of file")
 	validate   = flag.Bool("validate", false, "Validates the mappings")
 
+	config     *pb.Config
 	serviceMap map[string]*pb.Mapping
 )
 
@@ -48,30 +49,24 @@ func main() {
 		return
 	}
 
-	logfile, err := os.OpenFile(*logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("error opening log file: %v", err)
-	}
-	defer logfile.Close()
+	var err error
 	if !*foreground {
+		logfile, err := os.OpenFile(*logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalf("error opening log file: %v", err)
+		}
+		defer logfile.Close()
 		log.SetOutput(logfile)
 	}
 
-	config, err := loadConfig(*configfile)
+	config, err = loadConfig(*configfile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	mappings, err := loadMapping(config.GetMapFile())
+	serviceMap, err = loadMapping(config.GetMapFile())
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	serviceMap = make(map[string]*pb.Mapping)
-	for _, m := range mappings.GetMapping() {
-		for _, l := range m.GetName() {
-			serviceMap[l] = m
-		}
 	}
 
 	address := fmt.Sprintf("%s:%d", config.GetAddress(), config.GetPort())
@@ -92,7 +87,7 @@ func main() {
 // Read the config file and return a binary proto representing the contents
 func loadConfig(cfg string) (*pb.Config, error) {
 	var configpb pb.Config
-	contents, err := os.ReadFile(*configfile)
+	contents, err := os.ReadFile(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -103,30 +98,36 @@ func loadConfig(cfg string) (*pb.Config, error) {
 	return &configpb, nil
 }
 
-// Read the mapping file and return a binary proto of it's contents
-func loadMapping(mapfile string) (*pb.Mappings, error) {
+// Read the mapping file and generate a map of services
+func loadMapping(mapfile string) (map[string]*pb.Mapping, error) {
 	contents, err := os.ReadFile(mapfile)
 	if err != nil {
-		log.Fatalln(err)
+		return nil, fmt.Errorf("loadMapping() read error: %v", err)
 	}
 	var mappingpb pb.Mappings
 	err = prototext.Unmarshal(contents, &mappingpb)
 	if err != nil {
-		log.Fatalln(err)
+		return nil, fmt.Errorf("loadMapping() unmarshal error: %v", err)
 	}
-	return &mappingpb, nil
+	serviceMap = make(map[string]*pb.Mapping)
+	for _, m := range mappingpb.GetMapping() {
+		for _, l := range m.GetName() {
+			serviceMap[l] = m
+		}
+	}
+	return serviceMap, nil
 }
 
-// whether this mapping should be allowed based on times
-func allowed(mapping *pb.Mapping) bool {
-	now := time.Now().Unix()
+// whether this mapping should be allowed at a particular time. The `when` arg
+// is a unix timestamp
+func allowed(mapping *pb.Mapping, when int64) bool {
 	if mapping == nil {
 		return false
 	}
-	if now < mapping.GetPremierTime() {
+	if when < mapping.GetPremierTime() {
 		return false
 	}
-	if mapping.GetExpireTime() > 0 && now > mapping.GetExpireTime() {
+	if mapping.GetExpireTime() > 0 && when > mapping.GetExpireTime() {
 		return false
 	}
 	return true
@@ -152,16 +153,20 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println(ip, r.URL.Path)
 		return
 	}
+	if r.URL.Path == "/rehash" {
+		rehashHandler(w, r)
+		return
+	}
 
-	mapping, found := serviceMap[r.URL.Path[1:]]
+	svc, found := serviceMap[r.URL.Path[1:]]
 
-	if found && allowed(mapping) {
+	if found && allowed(svc, time.Now().Unix()) {
 		code := http.StatusSeeOther // 303
-		if mapping.GetHttpCode() > 0 {
-			code = int(mapping.GetHttpCode())
+		if svc.GetHttpCode() > 0 {
+			code = int(svc.GetHttpCode())
 		}
-		log.Println(ip, r.URL.Path, "->", mapping.GetTarget())
-		http.Redirect(w, r, mapping.GetTarget(), code)
+		log.Println(ip, r.URL.Path, "->", svc.GetTarget())
+		http.Redirect(w, r, svc.GetTarget(), code)
 	} else {
 		log.Println(ip, r.URL.Path, "-> ???")
 		fmt.Fprintln(w, "unknown service")
@@ -171,13 +176,13 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 // someone requested the domain with no service name. Instead
 // of giving them some useless "unknown service" message, give
 // them something slightly more useful.
-func indexHandler(w http.ResponseWriter, r *http.Request) {
+func indexHandler(w http.ResponseWriter, _ *http.Request) {
 	msg := "This is a simple URL shortener. To propose a new redirect go to q2.wtf/new"
 	fmt.Fprintln(w, msg)
 }
 
 // special case: listout all mappings
-func listHandler(w http.ResponseWriter, r *http.Request) {
+func listHandler(w http.ResponseWriter, _ *http.Request) {
 	now := time.Now().Unix()
 
 	// sort the keys
@@ -199,4 +204,28 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 
 		fmt.Fprintf(w, "%-20s %s\n", k, v.GetTarget())
 	}
+}
+
+// Reload the mappings from disk
+func rehashHandler(w http.ResponseWriter, r *http.Request) {
+	var err error
+	if config.GetRehashKey() == "" {
+		fmt.Fprintln(w, "auth key not set")
+		return
+	}
+	log.Println(r.RemoteAddr, "rehash requested")
+	key := r.URL.Query().Get("key")
+	if config.GetRehashKey() != key {
+		fmt.Fprintln(w, "invalid auth key")
+		return
+	}
+	backup := serviceMap
+	serviceMap, err = loadMapping(config.GetMapFile())
+	if err != nil {
+		serviceMap = backup
+		log.Printf("rehash error: %v", err)
+		fmt.Fprintln(w, "error reloading service map")
+		return
+	}
+	fmt.Fprintf(w, "Rehash: OK\nLoaded %d services", len(serviceMap))
 }
