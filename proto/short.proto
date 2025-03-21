@@ -9,6 +9,7 @@ message Config {
 	string address = 1;       // the ip address to listen on
 	uint32 port = 2;          // this is proxy port
 	string map_file = 3;      // path to mapping file
+	string rehash_key = 4;	  // random key for auth on rehash requests
 }
 
 message Mapping {
