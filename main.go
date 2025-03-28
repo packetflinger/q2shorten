@@ -148,6 +148,10 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 		indexHandler(w, r)
 		return
 	}
+	if r.URL.Path == "/robots.txt" {
+		robotsHandler(w, r)
+		return
+	}
 	if r.URL.Path == "/list" || r.URL.Path == "/index" {
 		listHandler(w, r)
 		log.Println(ip, r.URL.Path)
@@ -228,4 +232,9 @@ func rehashHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprintf(w, "Rehash: OK\nLoaded %d services", len(serviceMap))
+}
+
+// Handle requests for robots.txt. Hard coded, we don't want anything crawled.
+func robotsHandler(w http.ResponseWriter, _ *http.Request) {
+	fmt.Fprintf(w, "User-agent: *\nDisallow: /\n")
 }
